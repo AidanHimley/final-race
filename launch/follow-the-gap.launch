@@ -1,0 +1,4 @@
+<launch>
+	<node pkg="final" name="control" type="control.py" />
+	<node pkg="final" name="gap_finder" type="gap_finder.py" />
+</launch>
