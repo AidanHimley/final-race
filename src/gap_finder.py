@@ -22,6 +22,7 @@ class GapFinder():
 		self.disparity_threshold = 0.25
 		
 		rospy.spin()
+	
 
 	def getRanges(self, data):
 		"""data: single message from topic /scan
@@ -38,29 +39,7 @@ class GapFinder():
 				angles.append(math.degrees(data.angle_min + i*data.angle_increment))
 		return np.array(ranges), np.array(angles)
 
-	def disparityExtenderWidest(self, ranges, angles, angle_increment):
-		widest_gap_width = 0
-		widest_gap_start = np.argmin(abs(angles))
-		latest_gap_start = 0
-		disparities = []
-		for i in range(1, len(ranges)):
-			if abs(ranges[i]-ranges[i-1]) > self.disparity_threshold:
-				disparity_index = i if ranges[i] < ranges[i-1] else i-1
-				disparities.append(angles[disparity_index])
-				delta_i = int((self.safety_radius/(ranges[disparity_index]+self.CAR_LENGTH/2))/angle_increment)
-				disparity_start = max(0, disparity_index-delta_i)
-				if disparity_start-latest_gap_start > widest_gap_width:
-					widest_gap_width = disparity_start - latest_gap_start
-					widest_gap_start = latest_gap_start
-				latest_gap_start = max(disparity_index + delta_i + 1, latest_gap_start)
-		# check gap at end of array because it doesn't end in a disparity
-		if len(ranges) - latest_gap_start > widest_gap_width:
-			widest_gap_width = len(ranges) - latest_gap_start
-			widest_gap_start = latest_gap_start
-		rospy.loginfo("Seeing " + str(len(disparities)) + " disparities at angles:\n" + str(disparities))
-		target_index = widest_gap_start + np.argmax(ranges[widest_gap_start : widest_gap_start+widest_gap_width])
-		return angles[target_index], widest_gap_width*math.degrees(angle_increment), ranges[target_index]
-	
+
 	def disparityExtenderDeepest(self, ranges, angles, angle_increment):
 		start = np.argmin(np.abs(angles+70))
 		end = np.argmin(np.abs(angles-70))
@@ -101,18 +80,50 @@ class GapFinder():
 		else:
 			return sub_angles[deepest_index], width, sub_ranges[deepest_index]
 
-	def bubble(self, ranges, angles, angle_increment):
-		min_index = np.argmin(ranges)
-		min_range = ranges[min_index]
-		delta_i = int((self.safety_radius/(min_range+self.CAR_LENGTH/2))/angle_increment)
-		print("avoiding obstacle at angle " + str(angles[min_index]))
-		if angles[min_index] > 0:
-			target_index = np.argmax(ranges[0: min_index-delta_i])
-			width = min_index-delta_i
-		else:
-			target_index = min_index+delta_i + np.argmax(ranges[min_index+delta_i:])
-			width = len(angles) - (min_index+delta_i)
-		return angles[target_index], width*math.degrees(angle_increment), ranges[target_index]
+
+	def depthCounter(self, ranges, angles, angle_increment):
+		start = np.argmin(np.abs(angles+90))
+		end = np.argmin(np.abs(angles-90))
+		sub_ranges, sub_angles, = ranges[start:end], angles[start:end]
+		
+		disparities = []
+		depth_counter = 0
+		depths = [depth_counter]
+		
+		for gap_start in range(1, len(sub_ranges)):
+			if abs(sub_ranges[gap_start] - sub_ranges[gap_start-1]) > self.disparity_threshold:
+				if sub_ranges[gap_start] < sub_ranges[gap_start-1]:
+					disparity_index = gap_start
+					depth_counter -= 1
+				else:
+					disparity_index = gap_start-1
+					depth_counter += 1
+				delta_i = int((self.safety_radius/(sub_ranges[disparity_index]+self.CAR_LENGTH/2))/angle_increment)
+				disparities.append((disparity_index, delta_i))
+			depths.append(depth_counter)
+		
+		disparity_angles = [sub_angles[disparity[0]] for disparity in disparities]
+		
+		# for i in range(len(sub_angles)):
+		# 	print("angle: " + str(sub_angles[i]) + "\trange: " + str(sub_ranges[i]))
+		rospy.loginfo("Seeing " + str(len(disparities)) + " disparities at angles:\n" + str(disparity_angles))
+		
+		for disparity_index, delta_i in disparities:
+			for j in range(max(0, disparity_index-delta_i), min(len(sub_ranges), disparity_index+delta_i+1)):
+				sub_ranges[j] = 0
+
+		max_depth = max(depths)
+		for i in range(len(sub_ranges)):
+			if depths[i] != max_depth:
+				sub_ranges[i] = 0
+		
+		candidate_indices = []
+		for i in range(1, len(sub_ranges)-1):
+			if (sub_ranges[i] != 0) and (sub_ranges[i-1] == 0 or sub_ranges[i+1] == 0):
+				candidate_indices.append(i)
+
+		target_index = candidate_indices[np.argmax(sub_ranges[candidate_indices])]
+		return sub_angles[target_index], 0, sub_ranges[target_index]
 
 	def callback(self, data):
 

@@ -18,7 +18,7 @@ class Controller():
 		# 35: Nice Autonomous Pace
 		# > 40: Careful, what you do here. Only use this if your autonomous steering is very reliable.
 		# this is used as max velocity for dynamic velocity
-		self.max_velocity = 30 # float(input("Enter desired maximum velocity: "))
+		self.max_velocity = float(input("Enter desired maximum velocity: "))
 		self.min_velocity = 15
 
 		# zero correction offset in case servo is misaligned and has a bias in turning.
@@ -40,22 +40,20 @@ class Controller():
 		#want today to kind of end
                 # -120 to 120 is the angle range, so divide by 1.2 to be between -100 and 100
 		angle = data.angle*2
+		angle = max(-100, min(angle, 100))
 		
 		# An empty AckermannDrive message is created. You will populate the steering_angle and the speed fields.
 		command = AckermannDrive()
 
 		# Make sure the steering value is within bounds [-100,100]
-		command.steering_angle = max(-100, min(angle, 100))
+		command.steering_angle = angle
 
 		# Make sure the velocity is within bounds [0,100]
-		MIN_DEPTH = 1
-		MAX_DEPTH = 4
-		if data.depth < MIN_DEPTH:
-			velocity = self.min_velocity
-		elif data.depth < MAX_DEPTH:
-			velocity = self.min_velocity + (data.depth-MIN_DEPTH)/(MAX_DEPTH-MIN_DEPTH)*(self.max_velocity-self.min_velocity)
-		else:
+		MIN_ANGLE = 50
+		if abs(angle) < MIN_ANGLE:
 			velocity = self.max_velocity
+		else:
+			velocity = self.max_velocity - (self.max_velocity-self.min_velocity)*(abs(angle)-MIN_ANGLE)/(100-MIN_ANGLE)
 		command.speed = max(0, min(velocity, 100))
 		rospy.loginfo("commanding speed " + str(command.speed) + " and angle " + str(command.steering_angle))
 		# Move the car autonomously
