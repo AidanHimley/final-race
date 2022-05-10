@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from copy import copy
 import rospy
 import math
 from sensor_msgs.msg import LaserScan
@@ -19,7 +20,7 @@ class GapFinder():
 		self.ANGLE_RANGE = 240			# Hokuyo 4LX has 240 degrees FoV for scan
 		self.CAR_LENGTH = 0.50			# Traxxas Rally is 20 inches or 0.5 meters
 		self.safety_radius = 0.25
-		self.disparity_threshold = 0.25
+		self.disparity_threshold = 0.75
 		
 		rospy.spin()
 	
@@ -84,7 +85,7 @@ class GapFinder():
 	def depthCounter(self, ranges, angles, angle_increment):
 		start = np.argmin(np.abs(angles+90))
 		end = np.argmin(np.abs(angles-90))
-		sub_ranges, sub_angles, = ranges[start:end], angles[start:end]
+		sub_ranges, sub_angles, = ranges, angles	# ranges[start:end], angles[start:end]
 		
 		disparities = []
 		depth_counter = 0
@@ -102,6 +103,9 @@ class GapFinder():
 				disparities.append((disparity_index, delta_i))
 			depths.append(depth_counter)
 		
+		if len(disparities) == 0:
+			return sub_angles[np.argmax(sub_ranges)], 0, np.max(sub_ranges)
+		
 		disparity_angles = [sub_angles[disparity[0]] for disparity in disparities]
 		
 		# for i in range(len(sub_angles)):
@@ -112,18 +116,27 @@ class GapFinder():
 			for j in range(max(0, disparity_index-delta_i), min(len(sub_ranges), disparity_index+delta_i+1)):
 				sub_ranges[j] = 0
 
-		max_depth = max(depths)
-		for i in range(len(sub_ranges)):
-			if depths[i] != max_depth:
-				sub_ranges[i] = 0
-		
-		candidate_indices = []
-		for i in range(1, len(sub_ranges)-1):
-			if (sub_ranges[i] != 0) and (sub_ranges[i-1] == 0 or sub_ranges[i+1] == 0):
-				candidate_indices.append(i)
+		max_depth, min_depth = max(depths), min(depths)
+		try_depth = max_depth
+		while (try_depth > min_depth):
+			ranges_copy = copy(sub_ranges)
+			for i in range(len(ranges_copy)):
+				if depths[i] < try_depth:
+					ranges_copy[i] = 0
+			
+			candidate_indices = []
+			for i in range(1, len(ranges_copy)-1):
+				if (ranges_copy[i] != 0) and (ranges_copy[i-1] == 0 or ranges_copy[i+1] == 0):
+					candidate_indices.append(i)
 
-		target_index = candidate_indices[np.argmax(sub_ranges[candidate_indices])]
-		return sub_angles[target_index], 0, sub_ranges[target_index]
+			if len(candidate_indices) != 0:
+				rospy.loginfo("Seeing " + str(len(candidate_indices)) + " candidate indices")
+				target_index = candidate_indices[np.argmax(ranges_copy[candidate_indices])]
+				return sub_angles[target_index], 0, ranges_copy[target_index]
+			try_depth -= 1
+		rospy.loginfo("NOT SEEING ANY CANDIDATES!!!")
+		return sub_angles[np.argmax(sub_ranges)], 0, np.max(sub_ranges)
+
 
 	def callback(self, data):
 
@@ -139,7 +152,7 @@ class GapFinder():
 		# msg.angle = ...			# position of the center of the selected gap
 		# msg.width = ...			# width of the selected gap
 		# msg.depth = ...			# depth of the selected gap
-		msg.angle, msg.width, msg.depth = self.disparityExtenderDeepest(ranges, angles, data.angle_increment)
+		msg.angle, msg.width, msg.depth = self.depthCounter(ranges, angles, data.angle_increment)
 		# for i in range(len(angles)):
 		# 	print("angle: " + str(angles[i]) + "\trange: " + str(ranges[i]))
 		# print(len(angles))
