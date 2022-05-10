@@ -12,9 +12,9 @@ class GapFinder():
 		print("Hokuyo LIDAR node started")
 		
 		# initialize node, subscriber, and publisher
-		rospy.init_node('gap_finder', anonymous = True)
-		rospy.Subscriber("/car_7/scan", LaserScan, self.callback)
-		self.pub = rospy.Publisher('/car7/gap_info', gap_info, queue_size=10)
+		#rospy.init_node('gap_finder', anonymous = True)
+		#rospy.Subscriber("/car_7/scan", LaserScan, self.callback)
+		#self.pub = rospy.Publisher('/car7/gap_info', gap_info, queue_size=10)
 
 		# Some useful variable declarations.
 		self.ANGLE_RANGE = 240			# Hokuyo 4LX has 240 degrees FoV for scan
@@ -22,7 +22,7 @@ class GapFinder():
 		self.safety_radius = 0.25
 		self.disparity_threshold = 0.75
 		
-		rospy.spin()
+		#rospy.spin()
 	
 
 	def getRanges(self, data):
@@ -107,10 +107,7 @@ class GapFinder():
 			return sub_angles[np.argmax(sub_ranges)], 0, np.max(sub_ranges)
 		
 		disparity_angles = [sub_angles[disparity[0]] for disparity in disparities]
-		
-		# for i in range(len(sub_angles)):
-		# 	print("angle: " + str(sub_angles[i]) + "\trange: " + str(sub_ranges[i]))
-		rospy.loginfo("Seeing " + str(len(disparities)) + " disparities at angles:\n" + str(disparity_angles))
+		print("Seeing " + str(len(disparities)) + " disparities at angles:\n" + str(disparity_angles))
 		
 		for disparity_index, delta_i in disparities:
 			for j in range(max(0, disparity_index-delta_i), min(len(sub_ranges), disparity_index+delta_i+1)):
@@ -119,22 +116,33 @@ class GapFinder():
 		max_depth, min_depth = max(depths), min(depths)
 		try_depth = max_depth
 		while (try_depth > min_depth):
-			ranges_copy = copy(sub_ranges)
-			for i in range(len(ranges_copy)):
-				if depths[i] < try_depth:
-					ranges_copy[i] = 0
-			
+
 			candidate_indices = []
-			for i in range(1, len(ranges_copy)-1):
-				if (ranges_copy[i] != 0) and (ranges_copy[i-1] == 0 or ranges_copy[i+1] == 0):
+			for i in range(1, len(sub_ranges)-1):
+				if (sub_ranges[i] != 0) and depths[i] == try_depth and \
+						(depths[i-1] < try_depth or depths[i+1] < try_depth):
 					candidate_indices.append(i)
 
+			if len(candidate_indices) == 0:
+				for disparity, _ in disparities:
+					if depths[disparity-1] == try_depth or depths[disparity+1] == try_depth:
+						lower_i, upper_i = disparity, disparity
+						while lower_i >= 0 and sub_ranges[lower_i] == 0:
+							lower_i -= 1
+						while upper_i < len(sub_ranges) and sub_ranges[upper_i] == 0:
+							upper_i += 1
+						if sub_ranges[lower_i] != 0 and sub_ranges[upper_i] != 0 and \
+								abs(sub_ranges[upper_i] - sub_ranges[lower_i]) > self.disparity_threshold:
+							candidate_indices.append(upper_i if sub_ranges[upper_i] > sub_ranges[lower_i] else lower_i)
+
 			if len(candidate_indices) != 0:
-				rospy.loginfo("Seeing " + str(len(candidate_indices)) + " candidate indices")
-				target_index = candidate_indices[np.argmax(ranges_copy[candidate_indices])]
-				return sub_angles[target_index], 0, ranges_copy[target_index]
+				print("Seeing " + str(len(candidate_indices)) + " candidate indices")
+				print(candidate_indices)
+				target_index = candidate_indices[np.argmax(sub_ranges[candidate_indices])]
+				return sub_angles[target_index], 0, sub_ranges[target_index]
 			try_depth -= 1
-		rospy.loginfo("NOT SEEING ANY CANDIDATES!!!")
+
+		print("NOT SEEING ANY CANDIDATES!!!")
 		return sub_angles[np.argmax(sub_ranges)], 0, np.max(sub_ranges)
 
 
@@ -160,4 +168,10 @@ class GapFinder():
 		self.pub.publish(msg)
 
 if __name__ == '__main__':
-	GapFinder()
+	gf = GapFinder()
+	ranges = np.array([.24, .24, .24, .24, .24, 2, 1, 1, 1, 1.2, 1.4])
+	inc = .5
+	angles = np.array(range(len(ranges)))*inc
+	print(angles)
+	print(gf.depthCounter(ranges, angles, inc))
+	print(ranges)
