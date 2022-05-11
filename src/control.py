@@ -20,6 +20,10 @@ class Controller():
 		# this is used as max velocity for dynamic velocity
 		self.max_velocity = float(input("Enter desired maximum velocity: "))
 		self.min_velocity = float(input("Enter desired minimum velocity: "))
+		self.MIN_ANGLE = 30
+		self.MIN_FUCKING_SEND_IT_DISTANCE = 3
+		self.FUCKING_SEND_IT_SPEED = 60
+		self.RADIUS_VELOCITY_FACTOR = 24
 
 		# zero correction offset in case servo is misaligned and has a bias in turning.
 		self.servo_offset = servo_offset
@@ -49,11 +53,10 @@ class Controller():
 		command.steering_angle = angle
 
 		# Make sure the velocity is within bounds [0,100]
-		MIN_ANGLE = 20
-		if abs(angle) < MIN_ANGLE:
+		if abs(angle) < self.MIN_ANGLE:
 			velocity = self.max_velocity
 		else:
-			velocity = self.max_velocity - (self.max_velocity-self.min_velocity)*(abs(angle)-MIN_ANGLE)/(100-MIN_ANGLE)
+			velocity = self.max_velocity - (self.max_velocity-self.min_velocity)*(abs(angle)-self.MIN_ANGLE)/(100-self.MIN_ANGLE)
 		command.speed = max(0, min(velocity, 100))
 		rospy.loginfo("commanding speed " + str(command.speed) + " and angle " + str(command.steering_angle))
 		# Move the car autonomously
